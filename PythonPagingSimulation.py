@@ -1,33 +1,32 @@
 # This program was written by Vincent Hollander for group 3 for the final project in CSCI 3453.
 # I do not consent to this program being used for AI training, LLM training, AI data scraping, or LLM data scraping.
 import time
+import matplotlib.pyplot as plt
+import random
 import numpy as np
 
 # Creating the different tables as global arrays. I have them empty so I can load specific, meaningful values using createPageTables().
-pageTable = np.empty(5) # A page table the size of 5 means that the process has been split into 5 different pages, this is because the size of the process is about the size of 5 frames.
+pageTable = np.full(5, 0) # A page table the size of 5 means that the process has been split into 5 different pages, this is because the size of the process is about the size of 5 frames.
 mainMemory = np.full(30, 0) #The virtual and main memory both are the same size. Their size is independent of the process. I am going to fill them at first with 0s to represent nothing in the table.
 virtualMemory = np.full(30, 0)
 
 # Function to populate the tables.
 def createPageTables():
-    mainMemory[mainMemory] = 0
-    virtualMemory[virtualMemory] = 0
+    # Clearing all the tables so the loop works.
+    pageTable.fill(0)
+    mainMemory.fill(0)
+    virtualMemory.fill(0)
 
-    # The page table gives the frame number that the part of the process is stored in.
-    pageTable[0] = 5
-    pageTable[1] = 6
-    pageTable[2] = 7
-    pageTable[3] = 31 # Notably, part 3 of the process is not stored in main memory, so it is set to a value outside of the main memory frames to represent it as "indeterminate".
-    pageTable[4] = 25
-
-    # The actual main memory address of the part of the process is found by combining the frame number and the offset (in this case we are just adding them together).
-    mainMemory[6] = 1
-    mainMemory[7] = 2
-    mainMemory[8] = 3
-    mainMemory[26] = 5
-
-    # While virtual memory mimics the size of main memory, it notably does not have to store processes in the same manner as it does not use the page table to access it.
-    virtualMemory[4] = 4
+    # Loop to randomly fill in the page table with some values being in main memory and some being in virtual.
+    for i in range(5):
+        random.seed()
+        x = random.randrange(29)
+        if (x % 3 == 0 or x % 3 == 2) and mainMemory[x+1] == 0:
+            mainMemory[x] = i
+            pageTable[i] = x
+        else:
+            pageTable[i] = 31
+            virtualMemory[x] = i
 
 # This is the function that simulates using a Page Table to find process data.
 def usePageTable(pageNum, offset):
@@ -39,14 +38,14 @@ def usePageTable(pageNum, offset):
         return 0 
 
     if(mainMemory[memAddress] != 0): # The MMU now retreives the data from the memory address, assuming that the offset is valid and main memory has not been altered.
-        print("The Page Table found: ", mainMemory[memAddress]) # This simulates the MMU successfully retrieving the data. Notice it is mostly instant.
+        # This simulates the MMU successfully retrieving the data. Notice it is mostly instant.
         return 1
     else:
         return 2 # This would symbolize a significant issue in the paging process happened somewhere.
 
 # This is the function that simulates a page fault.
 def pageFault(pageNum):
-    print("OS Trap Triggered: Invalid Memory Access!") # The MMU causes a trap to the kernel.
+    # The MMU causes a trap to the kernel.
     time.sleep(0.5) # This represents the OS accessing the virtual memory (which takes longer than accessing main memory).
     processData = virtualMemory[pageNum] # When the OS finds the correct page, it goes to load it into main memory for easier access next time.
     for i in mainMemory: 
@@ -55,54 +54,65 @@ def pageFault(pageNum):
             pageTable[pageNum-1] = i-1 # Then it replaces the indeterminate with the frame number.
             virtualMemory[pageNum] = 0 # The data is then cleared out of virtual memory as it now exists in main memory.
             break # It only needs to do this once, we do not want to fill up main memory with the same thing over and over.
-    print("Page fault has been resolved")
 
 if __name__ == '__main__':
-    progOn = True # This is set up to let the program loop so the users can test mutliple times in one run.
     print("This is a program to simulate paging as a form of memory management! This is to simulate the time it takes for a page table to perform under standard circumstances.")
-    while progOn:
-        # Initializing variables to count the time for the whole simulation and individual functions.
-        timeTotal = 0
-        pageTableTime = 0
-        pageFaultTime = 0
-
+    # Setting up variables for data analysis
+    pageTableTime = 0
+    pageFaultTime = 0
+    pageTableAccess = 0
+    pageFaultAccess = 0
+    pageTableTimes = np.array(0)
+    pageFaultTimes = np.array(0)
+    for x in range (10000):
         # Re-initializing the page tables so that the page fault triggers if selected multiple times in one session.
         createPageTables()
-
-        # Getting user input to select which process section we want to test
-        print("You are playing the role of the CPU, please select a number between 1-5 to signify the request of a process' data. To exit press 0.")
-        num = int(input())
-
-        # Handling the user input
-        if num > 0 and num < 6: # This is the correct case.
+        for num in range(5):
             t1Start = time.perf_counter() # Starting timer.
             result1 = usePageTable(num, 1) # Calling pageTable function.
             t1Stop = time.perf_counter() # Stopping timer.
-            timeTotal += t1Stop - t1Start # Adding this to total time.
-            pageTableTime += t1Stop - t1Start # Calculating the time of this page table access.
-        elif num == 0: # This allows the user to exit gracefully.
-            print("Simulation over!")
-            progOn = False
-            break
-        else: # This is error handling for incorrect input.
-            print("Invalid option, please select a number between 1 and 5.")
-            continue
+            t1Full = t1Stop - t1Start # Calculating the time of this page table access.
+            pageTableTime += t1Full
+            pageTableTimes = np.append(pageTableTimes, t1Full)
+            pageTableAccess += 1
+            # This is the return value of the page table if a page fault is triggered.
+            if result1 == 0:
+                t2Start = time.perf_counter() # Starting page fault handling timer.
+                pageFault(num) # Calling the pageFault function.
+                t2Stop = time.perf_counter() # Stopping timer.
+                t2Full = t2Stop - t2Start # Calculating the time of page fault handling.
+                pageFaultTime += t2Full
+                t3Start = time.perf_counter() # Starting the page table timer.
+                usePageTable(num,1) # Calling page table now that the memory value is fixed.
+                t3Stop = time.perf_counter() # Stopping timer.
+                t3Full = t3Stop - t3Start
+                pageFaultTime += t3Full
+                pageTableTime += t3Full
+                pageTableTimes = np.append(pageTableTimes, t3Full)
+                t3Full += t2Full
+                pageFaultTimes = np.append(pageFaultTimes, t3Full)
+                pageFaultAccess += 1
+                pageTableAccess += 1
+  
+    # Plotting a line graph to compare page table and page fault times.
+    x = np.arange(0, pageTableAccess+1)
+    x2 = np.arange(0, pageFaultAccess+1)
+    plt.title("Access Times") 
+    plt.xlabel("X axis") 
+    plt.ylabel("Y axis") 
+    plt.plot(x, pageTableTimes, label = "Page Table Access Times")
+    plt.plot(x2, pageFaultTimes, label = "Page Fault Handling Times") 
+    plt.legend()
+    plt.show()
 
-        # This is the return value of the page table if a page fault is triggered.
-        if result1 == 0:
-            t2Start = time.perf_counter() # Starting page fault handling timer.
-            pageFault(num) # Calling the pageFault function.
-            t2Stop = time.perf_counter() # Stopping timer.
-            timeTotal += t2Stop - t2Start # Adding to total time.
-            pageFaultTime += t2Stop - t2Start # Calculating the time of page fault handling.
-            t3Start = time.perf_counter() # Starting the page table timer.
-            usePageTable(num,1) # Calling page table now that the memory value is fixed.
-            t3Stop = time.perf_counter() # Stopping timer.
-            pageFaultTime += t3Stop - t3Start # Adding this to the time it takes for the page fault to be handled.
-            timeTotal += t3Stop - t3Start # Adding to total time.
+    # Plotting a bar graph to compage the average times of page table access and page fault handling.
+    barX = np.array(["Avg. Page Table Access Time", "Avg. Page Fault Time"])
+    avgPageTable = pageTableTime / pageTableAccess
+    avgPageFault = pageFaultTime / pageFaultAccess
+    barY = np.array([avgPageTable, avgPageFault])
+    plt.bar(barX,barY)
+    plt.show()
 
-        # The output of the timers
-        print("The total time of paging procedures is: ", timeTotal)
-        print("The time taken when accessing the page table is: ", pageTableTime)
-        if num == 4:
-            print("The time taken to handle the page fault is: ", pageFaultTime)
+    # Printing the average times out so the exact number is known too.
+    print("Average Page Table Access Time: ", avgPageTable)
+    print("Average Page Fault Handle Time: ", avgPageFault)
